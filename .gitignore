@@ -2,3 +2,8 @@ node_modules/
 dist/
 .DS_Store
 *.log
+
+# Ready Player Me animation-library assets — same reasoning as avatar-anim-v2:
+# their licence forbids redistributing the clips, so these are fetched fresh
+# by fetch-assets.mjs instead of committed.
+public/models/

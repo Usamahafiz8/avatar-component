@@ -2,15 +2,355 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Avatar Component — Sandbox</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Avatar Component — Table Mockup</title>
     <style>
-      html, body { margin: 0; height: 100%; background: #111; }
-      #app { position: fixed; inset: 0; }
+      :root {
+        --bg-1: #0d1a12;
+        --bg-2: #060d08;
+        --panel: #101f16;
+        --panel-2: #0c1911;
+        --line: rgba(255, 255, 255, 0.09);
+        --st-lime: #bfff3a;
+        --st-lime-rgb: 191, 255, 58;
+        --st-cream: #f7f4ec;
+        --muted: rgba(246, 232, 200, 0.58);
+        --shadow: 0 10px 28px rgba(0, 0, 0, 0.35);
+        --gold: #d9b25c;
+        --line-strong: rgba(255, 255, 255, 0.16);
+      }
+      * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+      html, body {
+        margin: 0;
+        min-height: 100%;
+        color: var(--st-cream);
+        font: 15px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      }
+      body {
+        min-height: 100vh;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 28px 16px 48px;
+        background: radial-gradient(ellipse 120% 40% at 50% 0%, #17301f, var(--bg-1) 55%, var(--bg-2)) no-repeat fixed;
+      }
+      h1 { font-size: 15px; font-weight: 800; letter-spacing: 0.02em; margin: 0 0 4px; text-align: center; }
+      .sub { color: var(--muted); font-size: 12px; text-align: center; margin: 0 0 22px; max-width: 340px; }
+
+      .table-card-col {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        flex: 0 1 400px;
+        min-width: 300px;
+      }
+
+      /* ── the reference "card" panel ─────────────────────────────────── */
+      .table-card {
+        position: relative;
+        width: 100%;
+        max-width: 400px;
+        background: linear-gradient(180deg, var(--panel), var(--panel-2));
+        border: 1px solid var(--line);
+        box-shadow: var(--shadow);
+        border-radius: 20px;
+        padding: 22px 18px 20px;
+        overflow: hidden;
+      }
+      .mic-btn {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+        width: 30px;
+        height: 30px;
+        border-radius: 50%;
+        background: rgba(0, 0, 0, 0.35);
+        border: 1px solid var(--line);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--st-cream);
+        font-size: 13px;
+      }
+
+      /* seat badge — same shape/ring language as blackjack-pwa's
+         .seat-avatar / .seat.active ring (ui/styles.css), scaled up since
+         it's the hero here rather than a small opponent chip. */
+      .seat-head { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+      .seat-avatar {
+        width: 84px;
+        height: 84px;
+        border-radius: 50%;
+        background: linear-gradient(135deg, #3a3a3a, #1a1a1a);
+        border: 3px solid var(--st-lime);
+        box-shadow:
+          0 0 0 3px rgba(var(--st-lime-rgb), 0.48),
+          0 0 20px rgba(var(--st-lime-rgb), 0.32);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 28px;
+        font-weight: 800;
+        color: var(--st-cream);
+        position: relative;
+        animation: seat-ring-pulse 2.2s ease-in-out infinite;
+      }
+      @keyframes seat-ring-pulse {
+        0%, 100% { box-shadow: 0 0 0 3px rgba(var(--st-lime-rgb), 0.48), 0 0 20px rgba(var(--st-lime-rgb), 0.32); }
+        50% { box-shadow: 0 0 0 5px rgba(var(--st-lime-rgb), 0.7), 0 0 30px rgba(var(--st-lime-rgb), 0.5); }
+      }
+      .seat-dots { display: flex; gap: 3px; }
+      .seat-dots span {
+        width: 4px; height: 4px; border-radius: 50%;
+        background: var(--st-lime);
+        box-shadow: 0 0 6px rgba(var(--st-lime-rgb), 0.8);
+      }
+      .seat-name { font-size: 15px; font-weight: 800; letter-spacing: 0.02em; margin-top: 2px; }
+      .seat-cards-count {
+        font-size: 11px; font-weight: 600; letter-spacing: 0.05em;
+        text-transform: uppercase; color: var(--muted);
+      }
+
+      /* ── the character stands here, feet landing on the deck below ──── */
+      .stage {
+        position: relative;
+        height: 21svh;
+        min-height: 150px;
+        max-height: 240px;
+        margin: -6px auto 0;
+        display: flex;
+        justify-content: center;
+      }
+      .stage canvas { width: 100%; height: 100%; display: block; }
+
+      .dev-controls {
+        margin-top: 26px;
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+        gap: 10px;
+      }
+      .dev-controls button {
+        background: rgba(255, 255, 255, 0.08);
+        border: 1px solid var(--line);
+        color: var(--st-cream);
+        border-radius: 10px;
+        padding: 8px 14px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .dev-controls button:hover { filter: brightness(1.2); }
+      .note {
+        max-width: 400px;
+        margin-top: 18px;
+        color: var(--muted);
+        font-size: 11px;
+        text-align: center;
+        line-height: 1.5;
+      }
+
+      /* ── Customize trigger (pill overlay) + the customize panel, shown
+         SIDE BY SIDE with the live character rather than covering it — so
+         every change is visible in real time as you pick it. Wraps to a
+         stacked column on narrow viewports (still both visible, just not
+         side by side — there isn't room). ──────────────────────────────── */
+      .customize-btn {
+        position: absolute;
+        top: 16px;
+        left: 16px;
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        background: rgba(0, 0, 0, 0.4);
+        border: 1px solid var(--line-strong);
+        color: var(--st-cream);
+        border-radius: 999px;
+        padding: 7px 13px 7px 10px;
+        font-size: 11.5px;
+        font-weight: 700;
+        cursor: pointer;
+      }
+      .customize-btn:hover { filter: brightness(1.15); }
+
+      /* Two explicit grid columns — character card, customize panel — kept
+         side by side by the grid track sizing itself rather than flex-wrap
+         collapsing them. Only drops to a single column below 760px, where
+         two 300px-min columns genuinely can't both fit. */
+      .workspace {
+        display: grid;
+        grid-template-columns: minmax(300px, 400px) minmax(300px, 360px);
+        justify-content: center;
+        align-items: start;
+        gap: 20px;
+        width: 100%;
+      }
+      .workspace:has(#customizeMount[hidden]) {
+        grid-template-columns: minmax(300px, 400px);
+      }
+      @media (max-width: 760px) {
+        .workspace { grid-template-columns: minmax(0, 1fr); }
+      }
+      #customizeMount[hidden] { display: none; }
+      .cz-panel {
+        position: relative;
+        width: 100%;
+        max-height: 78vh;
+        background: linear-gradient(180deg, #0e1c13, #081209);
+        border: 1px solid var(--line-strong);
+        border-radius: 20px;
+        display: flex;
+        flex-direction: column;
+        box-shadow: var(--shadow);
+      }
+      .cz-header {
+        display: flex; align-items: center; justify-content: space-between;
+        padding: 12px 20px 14px; border-bottom: 1px solid var(--line); flex: 0 0 auto;
+      }
+      .cz-header h3 { margin: 0; font-size: 16px; font-weight: 800; }
+      .cz-title-wrap { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+      .cz-status {
+        margin: 0; height: 14px; line-height: 14px; font-size: 11px; font-weight: 700;
+        color: var(--st-lime); opacity: 0; display: flex; align-items: center; gap: 6px;
+        transition: opacity 0.15s ease;
+      }
+      .cz-status.show { opacity: 1; }
+      .cz-spin {
+        width: 6px; height: 6px; border-radius: 50%; background: var(--st-lime);
+        box-shadow: 0 0 6px 1px rgba(var(--st-lime-rgb), 0.7);
+        animation: cz-pulse 1s ease-in-out infinite; flex: 0 0 auto;
+      }
+      @keyframes cz-pulse { 0%, 100% { opacity: 0.35; } 50% { opacity: 1; } }
+      .cz-close {
+        padding: 8px 16px; border-radius: 999px; cursor: pointer; font: inherit; font-weight: 800;
+        background: linear-gradient(180deg, #d4ff5e, var(--st-lime)); color: #10240a; border: none; font-size: 12px;
+      }
+      .cz-tabs {
+        display: flex; gap: 6px; background: rgba(255, 255, 255, 0.05); border-radius: 12px;
+        padding: 4px; margin: 12px 20px 0; flex: 0 0 auto;
+      }
+      .cz-tabs button {
+        flex: 1; padding: 9px; border-radius: 10px; border: none; background: transparent;
+        color: var(--muted); font: inherit; font-size: 12px; font-weight: 800; cursor: pointer;
+        transition: background 0.1s ease, color 0.1s ease;
+      }
+      .cz-tabs button[aria-pressed="true"] { background: var(--st-lime); color: #10240a; }
+      .cz-tab-panel[hidden] { display: none; }
+      .cz-body { overflow-y: auto; padding: 6px 20px calc(24px + env(safe-area-inset-bottom)); }
+      .cz-section { padding: 16px 0; border-bottom: 1px solid var(--line); }
+      .cz-section:last-of-type { border-bottom: none; }
+      .cz-section label {
+        display: flex; align-items: center; gap: 7px; font-size: 11px; font-weight: 800;
+        letter-spacing: 0.08em; text-transform: uppercase; color: var(--gold); margin-bottom: 11px;
+      }
+      .cz-seg { display: flex; gap: 6px; background: rgba(255, 255, 255, 0.05); border-radius: 12px; padding: 4px; }
+      .cz-seg button {
+        flex: 1; padding: 9px; border-radius: 10px; border: none; background: transparent;
+        color: var(--muted); font: inherit; font-size: 11.5px; font-weight: 700; cursor: pointer;
+        transition: background 0.1s ease, color 0.1s ease;
+      }
+      .cz-seg button[aria-pressed="true"] { background: var(--st-lime); color: #10240a; }
+      .cz-swatch-row { display: flex; flex-wrap: wrap; gap: 10px; }
+      .cz-swatch {
+        width: 40px; height: 40px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.14);
+        cursor: pointer; padding: 0; position: relative; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.35);
+        transition: transform 0.08s ease, border-color 0.08s ease;
+      }
+      .cz-swatch:active { transform: scale(0.92); }
+      .cz-swatch[aria-pressed="true"] { border-color: var(--gold); box-shadow: 0 0 0 2px rgba(217, 178, 92, 0.35), 0 2px 6px rgba(0, 0, 0, 0.35); }
+      .cz-swatch[aria-pressed="true"]::after {
+        content: "✓"; position: absolute; inset: 0; display: flex; align-items: center; justify-content: center;
+        color: #fff; font-size: 15px; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.9), 0 0 4px rgba(0, 0, 0, 0.6); font-weight: 900;
+      }
+      .cz-swatch-shape {
+        border-radius: 10px; width: auto; height: 36px; padding: 0 13px; background: rgba(255, 255, 255, 0.05);
+        color: var(--st-cream); font: inherit; font-size: 11.5px; font-weight: 700; border: 1px solid var(--line-strong); box-shadow: none;
+      }
+      .cz-swatch-shape[aria-pressed="true"] { background: var(--st-lime); color: #10240a; border-color: var(--st-lime); box-shadow: 0 3px 10px rgba(var(--st-lime-rgb), 0.25); }
+      .cz-swatch-shape[aria-pressed="true"]::after { content: none; }
+
+      /* ── Reactions tab: one row per move — a real animated preview thumb
+         (no clip here has an actual name to show instead) + On/Off toggle
+         on top, a sound picker + Test button below (Test plays both the
+         animation and whatever sound is assigned together) ─────────────── */
+      .cz-move-list { display: flex; flex-direction: column; gap: 14px; }
+      .cz-move-row {
+        display: flex; flex-direction: column; gap: 8px;
+        padding-bottom: 14px; border-bottom: 1px solid var(--line);
+      }
+      .cz-move-row:last-child { border-bottom: none; padding-bottom: 0; }
+      .cz-move-row-top { display: flex; align-items: center; gap: 10px; }
+      .cz-move-row-bottom { display: flex; align-items: center; gap: 8px; }
+      .cz-move-thumb {
+        width: 44px; height: 44px; border-radius: 8px; object-fit: cover;
+        background: rgba(255, 255, 255, 0.06); border: 1px solid var(--line);
+        flex: 0 0 auto;
+      }
+      .cz-move-label { flex: 1; font-size: 13px; font-weight: 600; min-width: 0; }
+      .cz-move-sound {
+        flex: 1; min-width: 0; background: rgba(255, 255, 255, 0.06); border: 1px solid var(--line-strong);
+        color: var(--st-cream); border-radius: 10px; padding: 7px 10px; font: inherit; font-size: 11.5px;
+      }
+      .cz-move-test {
+        background: rgba(255, 255, 255, 0.08); border: 1px solid var(--line-strong); color: var(--st-cream);
+        border-radius: 10px; padding: 7px 12px; font: inherit; font-size: 11.5px; font-weight: 700; cursor: pointer;
+        flex: 0 0 auto;
+      }
+      .cz-move-test:hover { filter: brightness(1.2); }
+      .cz-move-toggle { min-width: 52px; text-align: center; }
+      .cz-note { background: rgba(217, 178, 92, 0.07); border: 1px solid rgba(217, 178, 92, 0.25); border-radius: 13px; padding: 12px 13px; margin-top: 4px; }
+      .cz-note label { color: var(--gold); }
+      .cz-note p { margin: 0; font-size: 11.5px; line-height: 1.55; color: var(--muted); }
+      .cz-slider-row { margin-bottom: 16px; }
+      .cz-slider-row:last-child { margin-bottom: 0; }
+      .cz-slider-head { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 8px; font-size: 12px; color: var(--st-cream); font-weight: 600; }
+      .cz-val { color: var(--gold); font-variant-numeric: tabular-nums; }
+      .cz-slider-row input[type="range"] {
+        -webkit-appearance: none; appearance: none; width: 100%; height: 4px; border-radius: 2px;
+        background: var(--line-strong); outline: none; margin: 0;
+      }
+      .cz-slider-row input[type="range"]::-webkit-slider-thumb {
+        -webkit-appearance: none; appearance: none; width: 20px; height: 20px; border-radius: 50%;
+        background: var(--gold); border: 2px solid #10240a; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4); cursor: pointer;
+      }
+      .cz-slider-row input[type="range"]::-moz-range-thumb {
+        width: 20px; height: 20px; border-radius: 50%; background: var(--gold); border: 2px solid #10240a;
+        box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4); cursor: pointer;
+      }
     </style>
   </head>
   <body>
-    <div id="app"></div>
+    <h1>Avatar Component — Character Sandbox</h1>
+    <p class="sub">Seat badge + turn ring (hardcoded) with the real rigged, customizable character.</p>
+
+    <div class="workspace">
+    <div class="table-card-col">
+    <div class="table-card">
+      <button class="customize-btn" id="btnCustomize">🎨 Customize</button>
+      <div class="mic-btn">🎙</div>
+      <div class="seat-head">
+        <div class="seat-avatar" id="badge">MA</div>
+        <div class="seat-dots"><span></span><span></span><span></span></div>
+        <div class="seat-name">MASTER</div>
+        <div class="seat-cards-count">Cards: 3</div>
+      </div>
+
+      <div class="stage">
+        <canvas id="gl"></canvas>
+      </div>
+
+    </div>
+
+    <div class="dev-controls" id="movesRow"></div>
+    <p class="note">
+      Ceiling of the current body asset (see project notes): shirt/pants
+      COLOR is real (Customize → Appearance), but it's still the same
+      garment — no different cut, no chain/jewellery, no cornrows-style hair.
+    </p>
+    </div>
+
+    <div id="customizeMount" hidden></div>
+    </div>
+
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>
