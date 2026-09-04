@@ -66,13 +66,84 @@ rather than depending on flex-wrap's available width; collapses to one
 column under 760px, or before you've even opened it) so every change is
 visible in real time without covering the preview.
 
+### Match My Character To Me (selfie upload)
+
+At the top of the Appearance tab: **📷 Upload Selfie**. Picks a photo,
+sends it to Gemini's vision API via a dev-only `/api/analyze-face` endpoint
+(see `vite.config.ts`'s middleware + `analyze-face-core.mjs`, copied
+verbatim from `avatar-anim-v2` — same prompt/schema, proven there already),
+and applies whatever it returns (skin tone, eye colour, hair style+colour,
+beard style+colour, lip colour, glasses, jaw width, face length, body type)
+straight onto the character. A field it doesn't return, or returns an
+unrecognised value for, is left exactly as it was — never reset.
+
+**Needs a `GEMINI_API_KEY`** (copy `.env.example` to `.env.local`, fill it
+in, restart `npm run dev`) — none is configured in this environment, so
+right now uploading shows a clean "AI detection isn't configured" message
+rather than either crashing or silently doing nothing. The key is read only
+inside `vite.config.ts`'s own Node process; it never reaches the browser
+bundle.
+
+**Deliberately lighter than the original**: `avatar-anim-v2`'s version also
+runs a local MediaPipe face-landmark pass first — quality gates (no face /
+multiple faces / too dark / turned too far) and a free fallback when Gemini
+isn't configured. This is the direct Gemini-only path. A bad or non-face
+photo won't be caught before the request goes out; it'll come back as
+Gemini's best guess, or a clean error if the request itself fails. Worth
+porting the local quality-gate pass back in if bad uploads become a real
+problem — see `src/selfie.ts`'s doc comment.
+
+**Accuracy pass (2026-09, Osama reported colours/style/jaw all reading
+wrong):** tested against a real (synthetic, privacy-safe) face photo with
+known ground truth rather than guessing at a fix — the baseline result was
+actually reasonably close (correct body type, hair style, hair colour, no
+false glasses), so the pipeline wasn't fundamentally broken, but three real
+issues were found and fixed:
+- **Image sent to Gemini was downscaled to only 640px / 85% JPEG quality**
+  (`src/selfie.ts`) — too lossy for subtle reads like jaw width, face
+  length, and exact tone. Raised to 1280px / 92% quality.
+- **`temperature: 0.2`** (`analyze-face-core.mjs`) added sampling variance
+  to what's a structured classification task, not a creative one — every
+  field is "pick the one enum that matches" or "read this hex off the
+  image," where the most likely answer IS the right answer. Lowered to `0`.
+- **jawWidth/faceLength had no calibration anchor** — nothing told the
+  model most faces are "average," so it had no reason to prefer that over
+  "narrow"/"wide" or "short"/"long" for a subtle, ambiguous case. Prompt now
+  says explicitly: only pick the extreme categories for a CLEAR, noticeable
+  difference.
+
+Re-verified end-to-end after all three changes (real photo, actual browser
+upload) — still working, no regressions.
+
+**This exact feature has real history worth knowing:** a fuller version
+(with its own dedicated upload screen, quality gates, a colour editor, a
+premade-avatar picker) was built once in `avatar-anim-v2`, shown on a real
+phone, and rejected on sight ("delete this all stuff right now") — not a
+tech failure, a UI one. This version deliberately lives inside the existing
+Customize panel instead of a new dedicated screen, to avoid repeating that.
+
 ### Appearance tab
 
 - Body type (male/female — swaps the whole GLB + its own texture atlas)
 - Skin tone (5 presets, material tint)
-- Hair style (cap geometry: buzz/crop/swept — baked-in hair can't be
-  recoloured or hidden by painting, its UV footprint scatters across nearly
-  the whole atlas) + hair colour (6 presets)
+- **Hair style — 11 options** (2026-09, grew from 3): buzz, crop, fade,
+  swept back, quiff, curly, afro, mohawk, ponytail, bun, long — cap geometry
+  (baked-in hair can't be recoloured or hidden by painting, its UV footprint
+  scatters across nearly the whole atlas). Most are the same sphere-slice
+  dome at different radius/coverage (buzz/crop/fade/swept/quiff/curly/afro
+  really are all "how much rounded volume, how far down the scalp"), but
+  mohawk/ponytail/bun/long need a second attached shape a dome alone can't
+  fake. **Real constraint found and fixed while building these**: this
+  app's camera is fixed front-on with no rotation control, so a piece
+  placed directly behind the head (where a real ponytail/bun naturally
+  sits) is completely invisible — confirmed by screenshot, not assumed.
+  Fixed by moving each to somewhere the front camera can actually see it: a
+  high/side ponytail draping over one shoulder, a top bun sitting above the
+  crown, a mohawk ridge tall enough to clear the head outline (tuned back
+  once, after an first pass clipped past the top of the camera frame). Out
+  of scope for this technique entirely: braids/cornrows, real curl texture
+  — those need actual strand geometry or a normal map, not a solid-colour
+  primitive. + hair colour (6 presets)
 - Eye colour (6) / lip colour (5) — painted directly onto the shared texture
   at empirically-found UV rects, per body (male/female atlases differ)
 - Beard (5 styles + 6 colours, primitive geometry on the Head bone,

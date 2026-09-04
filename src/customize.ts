@@ -5,8 +5,9 @@
 // glasses, body type, jaw width / face length. All presets/ranges are
 // copied verbatim from the source — calibration data, not re-derived.
 import type { BeardStyleKey, BodyType, CharacterHandle, CharacterState, HairStyleKey } from "./character";
-import { nearestPresetHex, previewUrlFor } from "./character";
+import { applyFaceAnalysis, nearestPresetHex, previewUrlFor } from "./character";
 import { playSoundId, SOUND_LIBRARY } from "./sounds";
+import { analyzeSelfie, SelfieAnalysisError } from "./selfie";
 
 export interface ReactionsOptions {
   /** Every available move's label (e.g. from character.ts's CLIP_LABELS). */
@@ -98,7 +99,15 @@ const HAIR_STYLE_PRESETS: KeyPreset<HairStyleKey>[] = [
   { key: "default", label: "Default" },
   { key: "buzz", label: "Buzz" },
   { key: "crop", label: "Crop" },
+  { key: "fade", label: "Fade" },
   { key: "swept", label: "Swept back" },
+  { key: "quiff", label: "Quiff" },
+  { key: "curly", label: "Curly" },
+  { key: "afro", label: "Afro" },
+  { key: "mohawk", label: "Mohawk" },
+  { key: "ponytail", label: "Ponytail" },
+  { key: "bun", label: "Bun" },
+  { key: "long", label: "Long" },
 ];
 
 function faceShapeLabel(v: number, lowWord: string, highWord: string): string {
@@ -142,6 +151,14 @@ export function mountCustomizeUI(
       </div>
       <div class="cz-body">
         <div id="czTabAppearance" class="cz-tab-panel">
+        <section class="cz-section">
+          <label>Match My Character To Me</label>
+          <div class="cz-selfie-row">
+            <label class="cz-selfie-upload" for="czSelfieInput">📷 Upload Selfie</label>
+            <input type="file" id="czSelfieInput" accept="image/*" hidden />
+            <p id="czSelfieStatus" class="cz-selfie-status"></p>
+          </div>
+        </section>
         <section class="cz-section">
           <label>Body</label>
           <div class="cz-seg" id="czBodySeg">
@@ -392,6 +409,37 @@ export function mountCustomizeUI(
     }
     syncUI();
     void rebuildCharacter();
+  });
+
+  // ---- Upload Selfie -> AI customization (2026-09) -----------------------
+  // See src/selfie.ts's doc comment for what's deliberately simpler here
+  // than avatar-anim-v2's original (no local MediaPipe quality-gate pass —
+  // a bad/non-face photo just comes back as Gemini's best guess, or a clean
+  // error if the request itself fails, rather than being caught up front).
+  const selfieInput = $<HTMLInputElement>("czSelfieInput");
+  const selfieStatus = $("czSelfieStatus");
+  selfieInput.addEventListener("change", () => {
+    const file = selfieInput.files?.[0];
+    if (!file) return;
+    selfieStatus.textContent = "Analyzing…";
+    selfieStatus.classList.remove("is-error");
+    analyzeSelfie(file)
+      .then((traits) => {
+        Object.assign(state, applyFaceAnalysis(state, traits));
+        syncUI();
+        return rebuildCharacter();
+      })
+      .then(() => {
+        selfieStatus.textContent = "Done — matched from your photo.";
+      })
+      .catch((err: unknown) => {
+        selfieStatus.classList.add("is-error");
+        selfieStatus.textContent =
+          err instanceof SelfieAnalysisError ? err.message : "Couldn't analyze that photo — try a different one.";
+      })
+      .finally(() => {
+        selfieInput.value = "";
+      });
   });
 
   // ---- Reactions tab: which moves are in the pool, not what they look ----

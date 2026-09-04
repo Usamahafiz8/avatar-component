@@ -1,11 +1,12 @@
-// One-off visual verification: content-based reaction sound assignment —
-// only the 5 confirmed-big-gesture reactions get a sound, everything else
-// (subtle talking loops, the dejected "Lose" pose) is silent, dances keep
-// their cycle. Not part of the shipped build.
+// One-off visual verification: all 11 new/updated hair styles actually
+// render distinct, sane-looking geometry (not overlapping/invisible/
+// exploded). Not part of the shipped build.
 import { chromium } from "playwright";
 
+const STYLES = ["buzz", "crop", "fade", "swept", "quiff", "curly", "afro", "mohawk", "ponytail", "bun", "long"];
+
 const browser = await chromium.launch();
-const page = await browser.newPage({ viewport: { width: 500, height: 900 } });
+const page = await browser.newPage({ viewport: { width: 900, height: 1200 }, deviceScaleFactor: 2 });
 const errors = [];
 page.on("pageerror", (e) => errors.push(String(e)));
 page.on("console", (msg) => {
@@ -14,21 +15,17 @@ page.on("console", (msg) => {
 
 await page.goto("http://localhost:5183/", { waitUntil: "networkidle" });
 await page.click("#btnCustomize");
-await page.click('#czTabs button[data-tab="reactions"]');
-await page.waitForTimeout(500);
+await page.waitForTimeout(300);
 
-const rows = await page.$$eval(".cz-move-row", (els) =>
-  els.map((el) => ({
-    label: el.querySelector(".cz-move-label")?.textContent,
-    sound: el.querySelector(".cz-move-sound")?.value,
-  })),
-);
-const dances = rows.filter((r) => r.label?.startsWith("Dance"));
-const reactions = rows.filter((r) => r.label?.startsWith("Reaction"));
-console.log(`dances: ${dances.length} total, ${dances.filter((r) => r.sound).length} with a sound (expect all)`);
-console.log(`reactions: ${reactions.length} total, ${reactions.filter((r) => r.sound).length} with a sound (expect 5)`);
-console.log("reactions WITH a sound:", reactions.filter((r) => r.sound).map((r) => `${r.label}: ${r.sound}`));
-console.log("Reaction 12 (the 'Lose' pose) sound:", reactions.find((r) => r.label === "Reaction 12")?.sound || "(none, correct)");
+const labels = await page.$$eval("#czHairStyle button", (btns) => btns.map((b) => b.textContent));
+console.log("hair style buttons:", labels);
+
+for (const style of STYLES) {
+  const label = style === "swept" ? "Swept back" : style[0].toUpperCase() + style.slice(1);
+  await page.click(`#czHairStyle button:has-text("${label}")`);
+  await page.waitForTimeout(600);
+  await page.locator(".stage").screenshot({ path: `/tmp/av-hair-${style}.png` });
+}
 
 if (errors.length) {
   console.log("CONSOLE ERRORS:");

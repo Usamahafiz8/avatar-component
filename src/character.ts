@@ -14,7 +14,19 @@ import { clone as cloneSkinned } from "three/examples/jsm/utils/SkeletonUtils.js
 
 export type BodyType = "male" | "female";
 export type BeardStyleKey = "none" | "thin" | "stubble" | "goatee" | "medium" | "full";
-export type HairStyleKey = "default" | "buzz" | "crop" | "swept";
+export type HairStyleKey =
+  | "default"
+  | "buzz"
+  | "crop"
+  | "fade"
+  | "swept"
+  | "quiff"
+  | "curly"
+  | "afro"
+  | "mohawk"
+  | "ponytail"
+  | "bun"
+  | "long";
 
 const MODELS: Record<BodyType, string> = {
   male: "/models/rpm/Masculine.glb",
@@ -393,35 +405,136 @@ function buildBeard(style: Exclude<BeardStyleKey, "none">, hex?: number): THREE.
   return group;
 }
 
-// ---- hair cap: a real geometry swap covering the scalp (baked hair can't --
-// be recoloured or hidden by painting — its UV footprint scatters across
-// nearly the whole atlas, see paintFace's notes below).
-interface HairStyleConfig {
+// ---- hair styles: real geometry swaps covering the scalp (baked hair -----
+// can't be recoloured or hidden by painting — its UV footprint scatters
+// across nearly the whole atlas, see paintFace's notes below). 2026-09,
+// Osama's request for "at least all popular hair styles" — grew from 3
+// (buzz/crop/swept, all the same sphere-slice dome at different coverage)
+// to 11. Most new ones are still that same dome technique at different
+// radius/coverage/proportion — a legitimate way to cover buzz/crop/fade/
+// swept/quiff/curly/afro, which really are all "how much rounded volume,
+// how far down the scalp." But a dome alone can't read as a ponytail, bun,
+// mohawk, or long hair — those get a second (or third) primitive attached,
+// same "simple shape, good enough at this render scale" reasoning already
+// used for glasses/beard/chain. Honestly out of scope for this technique
+// entirely: braids/cornrows, real curl texture — those would need actual
+// strand geometry or a normal-mapped texture, not a solid coloured dome.
+interface DomeConfig {
   r: number;
   seg: [number, number];
   theta: number;
   y: number;
   z: number;
+  scale?: [number, number, number];
+  tiltX?: number;
 }
-const HAIR_STYLES: Record<Exclude<HairStyleKey, "default">, HairStyleConfig> = {
+const HAIR_DOME: Record<
+  Extract<HairStyleKey, "buzz" | "crop" | "fade" | "swept" | "quiff" | "curly" | "afro" | "mohawk" | "ponytail" | "bun" | "long">,
+  DomeConfig
+> = {
   buzz: { r: 0.1, seg: [16, 12], theta: 0.42, y: 0.115, z: -0.005 },
   crop: { r: 0.11, seg: [16, 12], theta: 0.65, y: 0.1, z: -0.01 },
+  // Fade/undercut: short and tight like buzz, but with a bit more built-up
+  // height/volume right at the crown (a taller top is the whole visual cue
+  // that separates "fade" from a plain buzz at this level of geometric
+  // detail — the shaved-sides part of a fade is implicit, since the base
+  // texture's own baked hair is already short there).
+  fade: { r: 0.1, seg: [16, 12], theta: 0.42, y: 0.118, z: -0.005, scale: [1, 1.35, 1] },
   swept: { r: 0.112, seg: [16, 12], theta: 0.68, y: 0.098, z: -0.02 },
+  // Quiff/pompadour: volume concentrated toward the front-top rather than
+  // spread evenly — approximated with a forward Z shift, extra height, and
+  // a slight forward tilt, not a symmetric dome like the others.
+  quiff: { r: 0.115, seg: [16, 12], theta: 0.58, y: 0.108, z: 0.01, scale: [1, 1.45, 1], tiltX: -0.12 },
+  // Curly and afro are the same "big round volume" idea at two sizes —
+  // curly tighter/smaller, afro larger and closer to a full sphere.
+  curly: { r: 0.13, seg: [18, 14], theta: 0.82, y: 0.1, z: -0.01 },
+  afro: { r: 0.155, seg: [20, 16], theta: 0.95, y: 0.095, z: -0.012 },
+  // Base dome for the three compound styles below — deliberately smaller/
+  // tighter (hair pulled back or shaved short on top) since the visual
+  // interest is in the attached piece, not the scalp coverage.
+  mohawk: { r: 0.095, seg: [14, 10], theta: 0.3, y: 0.115, z: -0.005 },
+  ponytail: { r: 0.105, seg: [16, 12], theta: 0.55, y: 0.105, z: -0.008 },
+  // Flatter than the other domes on purpose — the bun sphere needs to sit
+  // CLEARLY above this dome's own top to read as a separate round shape
+  // (measured by screenshot: at matching height it just blended into one
+  // slightly-lumpy dome instead of looking like hair-with-a-bun).
+  bun: { r: 0.1, seg: [16, 12], theta: 0.4, y: 0.1, z: -0.008 },
+  long: { r: 0.108, seg: [16, 12], theta: 0.6, y: 0.102, z: -0.01 },
 };
 const HAIR_COLOR_DEFAULT = 0x2a1a12;
-function buildHairCap(style: Exclude<HairStyleKey, "default">, hex?: number): THREE.Mesh {
-  const cfg = HAIR_STYLES[style] ?? HAIR_STYLES.crop;
-  const mat = new THREE.MeshStandardMaterial({
+
+function buildHairMaterial(hex: number | undefined, key: string): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({
     color: hex ?? HAIR_COLOR_DEFAULT,
     roughness: 0.8,
     transparent: true,
-    alphaMap: featherAlphaMap(0.55, `hair-${style}`),
+    alphaMap: featherAlphaMap(0.55, `hair-${key}`),
   });
+}
+
+function buildDome(cfg: DomeConfig, mat: THREE.Material): THREE.Mesh {
   const geo = new THREE.SphereGeometry(cfg.r, cfg.seg[0], cfg.seg[1], 0, Math.PI * 2, 0, Math.PI * cfg.theta);
-  const cap = new THREE.Mesh(geo, mat);
-  cap.position.set(0, cfg.y, cfg.z);
-  cap.name = "hairAccessory";
-  return cap;
+  const dome = new THREE.Mesh(geo, mat);
+  dome.position.set(0, cfg.y, cfg.z);
+  if (cfg.scale) dome.scale.set(...cfg.scale);
+  if (cfg.tiltX) dome.rotation.x = cfg.tiltX;
+  return dome;
+}
+
+function buildHairCap(style: Exclude<HairStyleKey, "default">, hex?: number): THREE.Object3D {
+  const group = new THREE.Group();
+  group.name = "hairAccessory";
+  const domeCfg = HAIR_DOME[style];
+  const mat = buildHairMaterial(hex, style);
+  if (domeCfg) group.add(buildDome(domeCfg, mat));
+
+  // Compound styles: a solid-colour primitive attached to the dome. Not
+  // real strand geometry — reads as the right silhouette at this render
+  // scale, same reasoning as the chain/glasses/beard accessories.
+  //
+  // First pass on mohawk/ponytail/bun put the extra piece directly BEHIND
+  // the head (negative Z, centred) — measured by screenshot (this rig's own
+  // "verify by rendering, don't assume" rule) and found completely
+  // invisible: this app's camera is fixed front-on with no rotation
+  // control, so anything directly behind the head is hidden by the head
+  // itself. Fixed by moving each piece somewhere a front camera can
+  // actually see it — up above the crown, or out to the side.
+  if (style === "mohawk") {
+    // First attempt (scale.y 3.2, y 0.185) clearly read as a mohawk but
+    // clipped past the top of this app's fixed camera frame — measured by
+    // screenshot, not assumed. Pulled back to stay in frame while still
+    // reading as a clear raised spike, not a bump.
+    const ridge = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 10), mat);
+    ridge.scale.set(0.32, 2.2, 2.2); // thin strip, tall, running front-to-back
+    ridge.position.set(0, 0.165, 0.01); // above the crown, near-centred front-back
+    group.add(ridge);
+  } else if (style === "ponytail") {
+    // A high/side ponytail: a small gather visible poking up at the crown,
+    // then a tail draping down the FRONT of one shoulder (not straight down
+    // the back) so both pieces stay in view from the front.
+    const gather = new THREE.Mesh(new THREE.SphereGeometry(0.03, 10, 8), mat);
+    gather.position.set(0, 0.16, -0.01);
+    group.add(gather);
+    const tail = new THREE.Mesh(new THREE.CylinderGeometry(0.024, 0.007, 0.19, 10), mat);
+    tail.position.set(0.065, 0.02, 0.05); // beside the neck, forward of centre
+    tail.rotation.z = 0.55; // leans outward over the shoulder, not straight down
+    group.add(tail);
+  } else if (style === "bun") {
+    // A top/high bun, not a low back bun — sits above the crown so its
+    // silhouette clears the head outline from the front. Needs real
+    // separation from the (deliberately flatter) dome's own top, measured
+    // by screenshot — at matching height the two blended into one lumpy
+    // shape instead of reading as hair-with-a-bun.
+    const bun = new THREE.Mesh(new THREE.SphereGeometry(0.05, 12, 10), mat);
+    bun.position.set(0, 0.2, -0.005);
+    group.add(bun);
+  } else if (style === "long") {
+    const fall = new THREE.Mesh(new THREE.SphereGeometry(0.09, 14, 12), mat);
+    fall.scale.set(0.85, 1.9, 0.65);
+    fall.position.set(0, -0.09, -0.06); // hangs down the back of the head/neck
+    group.add(fall);
+  }
+  return group;
 }
 
 // ---- eye/lip/shirt/pants colour: painted directly onto the shared texture -
@@ -711,6 +824,89 @@ export const DEFAULT_CHARACTER_STATE: CharacterState = {
   jawWidth: 1,
   faceLength: 1,
 };
+
+// ---- AI face analysis (2026-09, Osama's request: "ai will do the ---------
+// customization for me") — maps a Gemini response (see analyze-face-core.mjs,
+// copied verbatim from avatar-anim-v2, same prompt/schema) directly onto
+// CharacterState. hairStyle/beardStyle enums match this project's own
+// HairStyleKey/BeardStyleKey exactly by design (same source), so those need
+// no translation. jawWidth/faceLength come back as a category (narrow/
+// average/wide, short/average/long) — mapped to modest multipliers, same
+// values as avatar-anim-v2's JAW_WIDTH_MAP/FACE_LENGTH_MAP: this drives an
+// unattended first build from a photo, not deliberate manual dialing, so it
+// stays narrower than the Face Shape sliders' own extremes.
+export interface FaceAnalysis {
+  bodyType?: "male" | "female";
+  skinToneHex?: string;
+  eyeColorHex?: string;
+  hasGlasses?: boolean;
+  hairStyle?: string;
+  hairColorHex?: string;
+  beardStyle?: string;
+  beardColorHex?: string;
+  lipColorHex?: string;
+  jawWidth?: string;
+  faceLength?: string;
+}
+
+const JAW_WIDTH_MAP: Record<string, number> = { narrow: 0.9, average: 1, wide: 1.12 };
+const FACE_LENGTH_MAP: Record<string, number> = { short: 0.92, average: 1, long: 1.1 };
+const HAIR_STYLE_KEYS: readonly HairStyleKey[] = [
+  "default",
+  "buzz",
+  "crop",
+  "fade",
+  "swept",
+  "quiff",
+  "curly",
+  "afro",
+  "mohawk",
+  "ponytail",
+  "bun",
+  "long",
+];
+const BEARD_STYLE_KEYS: readonly BeardStyleKey[] = ["none", "thin", "stubble", "goatee", "medium", "full"];
+
+function parseHex(hex: string | undefined): number | undefined {
+  if (!hex) return undefined;
+  const n = Number.parseInt(hex.replace("#", ""), 16);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/** Returns a NEW state with the analysis applied over `base` — doesn't
+ * mutate `base`. Fields Gemini didn't return (or returned an enum value
+ * outside this project's own vocab for) are left exactly as they were,
+ * never reset to a default — a partial/uncertain read should never undo a
+ * trait the user already had set. Shirt/pants colour are untouched:
+ * they're not part of what this schema analyses (outfit, not face). */
+export function applyFaceAnalysis(base: CharacterState, traits: FaceAnalysis): CharacterState {
+  const next: CharacterState = { ...base };
+  if (traits.bodyType === "male" || traits.bodyType === "female") next.bodyType = traits.bodyType;
+  const skin = parseHex(traits.skinToneHex);
+  if (skin !== undefined) next.tint = skin;
+  const eye = parseHex(traits.eyeColorHex);
+  if (eye !== undefined) next.eyeColor = eye;
+  if (typeof traits.hasGlasses === "boolean") next.hasGlasses = traits.hasGlasses;
+  if (traits.hairStyle && (HAIR_STYLE_KEYS as readonly string[]).includes(traits.hairStyle)) {
+    next.hairStyle = traits.hairStyle as HairStyleKey;
+  }
+  const hairColor = parseHex(traits.hairColorHex);
+  if (hairColor !== undefined) next.hairColor = hairColor;
+  if (traits.beardStyle && (BEARD_STYLE_KEYS as readonly string[]).includes(traits.beardStyle)) {
+    next.beardStyle = traits.beardStyle as BeardStyleKey;
+  }
+  const beardColor = parseHex(traits.beardColorHex);
+  if (beardColor !== undefined) next.beardColor = beardColor;
+  const lip = parseHex(traits.lipColorHex);
+  if (lip !== undefined) next.lipColor = lip;
+  if (traits.jawWidth && traits.jawWidth in JAW_WIDTH_MAP) {
+    next.jawWidth = JAW_WIDTH_MAP[traits.jawWidth] as number;
+  }
+  if (traits.faceLength && traits.faceLength in FACE_LENGTH_MAP) {
+    next.faceLength = FACE_LENGTH_MAP[traits.faceLength] as number;
+  }
+  return next;
+}
 
 export interface CharacterHandle {
   /** Plays any label from CLIP_LABELS. "Idle" loops forever; everything else
