@@ -5,6 +5,7 @@
 // which moves stay in the pool). The deck/LAST CARD/END TURN/hand HUD
 // pieces from the original reference mockup were removed (2026-09, Osama's
 // request) to keep this focused on the character, not full table chrome.
+import "./customize-panel.css";
 import { CLIP_LABELS, DEFAULT_CHARACTER_STATE, mountCharacter, type CharacterState } from "./character";
 import { mountCustomizeUI } from "./customize";
 import { buildDefaultMoveSounds, playSoundId } from "./sounds";

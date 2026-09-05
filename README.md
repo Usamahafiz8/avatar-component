@@ -262,3 +262,132 @@ history includes an "Angry" clip that was actually a thumbs-up.
 2. Once stable, copy `src/` into `blackjack-pwa/ui/` (or wherever it's
    consumed) and add `three` as a dependency there.
 3. Wire it into the actual game screen/flow in `blackjack-pwa`.
+
+## `@readyplayerme/visage` proof-of-concept (2026-09-05)
+
+Researched RPM's open-source SDK repos as a possible fit for this project.
+Their embed/creator SDK (`@readyplayerme/react-avatar-creator`) is a dead end
+regardless of code quality — it iframes `<subdomain>.readyplayer.me`, and
+that domain has been DNS-dead from this network since at least 2026-08-31.
+`@readyplayerme/visage` (three.js/r3f display components) is separately
+loadable via npm, so a proof-of-concept was built to check whether it's
+worth adopting for display: `visage-poc.html` / `src/visage-poc.tsx`, a
+standalone page (its own Vite build entry — see `vite.config.ts`'s
+`rollupOptions.input`) completely isolated from the real character sandbox
+— different React root, different HTML file, deletable with zero impact on
+`index.html`/`main.ts`/`character.ts`'s own behavior (both were re-verified
+by screenshot after every change below to confirm that held).
+
+**What it took to get working, three real blockers, none of them in our own
+code:**
+1. Peer deps pin `three` to an exact `0.166.1` (we were on `^0.160.1`) plus
+   exact versions of `react`, `react-dom`, `@react-three/fiber`,
+   `@react-three/drei`, `@react-three/postprocessing`, `three-stdlib`,
+   `postprocessing`, `suspend-react`, `@amplitude/analytics-browser`. The
+   three.js bump was verified safe first — `npm run typecheck` and a real
+   screenshot of the existing character sandbox both clean before touching
+   the PoC.
+2. Visage pulls in `qs` → `object-inspect`, which does
+   `require('util').inspect` at module scope. Vite externalizes Node's
+   `util` core module for the browser by default, so that call is
+   `undefined` and crashes immediately on `.custom` before anything renders
+   — not a bug in this project, a Node/browser bundling mismatch in one of
+   visage's own transitive deps. Fixed with `vite-plugin-node-polyfills`,
+   scoped to just `util` (see `vite.config.ts`).
+3. **Every one of visage's built-in `environment` presets — including the
+   `'soft'` default — resolves to a `files.readyplayer.me` HDR URL.** That's
+   a third RPM subdomain, confirmed dead the same way as the other two
+   (`ERR_NAME_NOT_RESOLVED`), and it crashes the whole `<Canvas>` uncaught.
+   `environment` also accepts a plain path though, so the PoC points it at a
+   local HDR (`public/environments/quarry_01_1k.hdr`, pulled from three.js's
+   own MIT-licensed examples — a placeholder, swap for a properly sourced
+   asset before this goes near a real build) instead of a preset name.
+
+**Working after those three fixes** — verified by screenshot, not just "no
+console errors": the stock `Masculine.glb` renders through visage's
+`<Avatar>` with the local dance clip actually playing (pose visibly changes
+between two screenshots a beat apart).
+
+### The GLTFExporter round-trip: real customization through visage (2026-09-05, part 2)
+
+Extended the PoC to actually drive live customization, not just show the
+stock body. `visage-poc.html` now renders two avatars side by side — stock,
+and a "Customized" one driven by the **same Customize panel component**
+(`customize.ts`) as `index.html`'s real sandbox, sharing its CSS (pulled out
+into `src/customize-panel.css` so both pages use one copy instead of
+duplicating ~180 lines) and its `CharacterHandle` contract. visage-poc.tsx
+is the adapter: `customize.ts` calls `handle.rebuild(state)` exactly like it
+always has, and this adapter's implementation of that method is what's new
+— build the character via `character.ts`'s (newly extracted)
+`buildCustomizedCharacter()`, re-export the result to a binary GLB blob
+(`src/export-glb.ts`, via three's `GLTFExporter`), and feed that blob to
+visage's `<Avatar modelSrc>`. `play(label)`/`playIdle()` are simplified
+versus `mountCharacter`'s real version — just swap visage's
+`animationSrc` and let it loop, no hold-then-crossfade-home timing — good
+enough to preview a move via the Reactions tab's ▶ Test button, not a
+faithful port of the in-game beat.
+
+**Two real bugs found and fixed in the export path, both verified with
+actual pixel/byte inspection, not assumption:**
+
+1. **`GLTFExporter.js` never references `alphaMap` anywhere in its source**
+   (checked directly) — it only ever reads `.transparent`/`.alphaTest` as
+   flags, no texture slot, because core glTF has no equivalent to three's
+   alphaMap extension. `character.ts`'s hair and beard accessories are
+   built entirely from a flat-tinted material *plus* an alphaMap that
+   carves a small feathered dome/patch out of a much larger flat sphere —
+   without that map, the exported material comes back opaque across the
+   **whole** underlying sphere. First symptom: picking any hair style with
+   a wide `theta` (Curly, Afro) rendered as a giant solid ball engulfing the
+   head — confirmed NOT a preset/geometry bug by rendering the identical
+   state through the live vanilla sandbox, where it looks correct.
+   **Fix** (`export-glb.ts`'s `bakeAlphaMapsIntoColor`): before export, bake
+   the alphaMap into the **alpha channel of a real RGBA colour texture**
+   and assign that as `.map` instead — alpha from a colour texture's own
+   alpha channel is standard glTF (`baseColorTexture` + `alphaMode: BLEND`)
+   and does round-trip.
+2. **That bake came out vertically inverted on the first attempt** — found
+   by exporting, then actually extracting the baked PNG's raw bytes out of
+   the GLB's binary buffer view and reading real per-pixel alpha values
+   (not eyeballing a screenshot): the opaque band landed at the *bottom* of
+   the texture instead of the top. `GLTFExporter` re-encodes canvas-sourced
+   images to glTF's own row order regardless of the source texture's own
+   `.flipY` — not documented anywhere read, found by inspecting the actual
+   exported bytes. Fixed by flipping the row order (`h - 1 - y`) when
+   copying the alpha channel across.
+
+**After both fixes, decisively verified three ways, not just "looks
+right":** (1) extracted the exported PNG's raw pixel data and confirmed the
+alpha channel is a clean 255→46 top-to-bottom gradient with constant RGB;
+(2) confirmed the body mesh's native scale (~1.84 units, unscaled) already
+matches visage's own default camera framing — ruled out scale as a factor
+by measurement, not assumption; (3) **loaded the exact same exported GLB
+through plain three.js, bypassing visage entirely, and it renders
+correctly** — properly shaped, feathered hair, not a sphere.
+
+**That third test is the important one: it proves the export is now fully
+correct, and pins the remaining bug on visage's own rendering pipeline, not
+this project's code.** Skin tone, eye/lip colour, and shirt/pants colour —
+all plain texture-paint, no alphaMap involved — round-trip and render
+**correctly through visage right now**, live, driven by the real Customize
+panel (verified by screenshot). Hair/beard accessories still render as an
+oversized solid shape **specifically inside visage**, not in plain
+three.js. The likely cause, from reading visage's own `Models.service.tsx`
+earlier in this file's research: `normaliseMaterialsConfig` unconditionally
+sets `mat.depthWrite = true` for *any* material with a `.map` — which the
+alpha-bake fix above newly gives hair/beard materials (they previously had
+none, only a flat `.color` + `.alphaMap`). Not patched further — reaching
+into visage's own internal material pass after it loads a model is outside
+this project's code, and diminishing-returns territory for a PoC.
+
+**Where this actually leaves the "should we adopt visage" question**: the
+core mechanism works — this project's real customization pipeline, through
+the real Customize UI, genuinely renders live inside visage's `<Avatar>` for
+every texture-painted trait. Bone-parented alpha-shaped accessories (hair,
+beard) are the one category that doesn't currently work *through visage
+specifically*, for a reason outside this project's own code. None of this
+touches the actual open question from the original `avatar-spike` runtime
+research (draw-call cost), and the React/r3f/visage stack is a real
+dependency-tree addition for what — even working — doesn't yet exceed what
+`character.ts` already does directly. Worth an actual decision before going
+further, not an assumed "yes, keep building on this."

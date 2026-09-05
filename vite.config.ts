@@ -1,4 +1,7 @@
+import { fileURLToPath } from "node:url";
 import { defineConfig, loadEnv, type Plugin } from "vite";
+import react from "@vitejs/plugin-react";
+import { nodePolyfills } from "vite-plugin-node-polyfills";
 import { handleAnalyzeFaceRequest } from "./analyze-face-core.mjs";
 
 // Dev-only /api/analyze-face endpoint, proxying to Gemini via the shared
@@ -49,7 +52,26 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: "dist",
       target: "es2022",
+      // Two entry pages: the real character sandbox, and the standalone
+      // visage-poc.html — without this, `vite build` only picks up
+      // index.html and the PoC page 404s in a production build even though
+      // it works fine under the dev server (which serves any .html file).
+      rollupOptions: {
+        input: {
+          main: fileURLToPath(new URL("index.html", import.meta.url)),
+          visagePoc: fileURLToPath(new URL("visage-poc.html", import.meta.url)),
+        },
+      },
     },
-    plugins: [analyzeFaceDevApi(env.GEMINI_API_KEY)],
+    plugins: [
+      react(),
+      // @readyplayerme/visage pulls in `qs` -> `object-inspect`, which does
+      // `require('util').inspect` at module scope. Vite externalizes Node's
+      // `util` core module for the browser by default, leaving that call
+      // undefined and crashing on `.custom` before anything renders. Scoped
+      // to just `util` rather than polyfilling every Node core module.
+      nodePolyfills({ include: ["util"] }),
+      analyzeFaceDevApi(env.GEMINI_API_KEY),
+    ],
   };
 });

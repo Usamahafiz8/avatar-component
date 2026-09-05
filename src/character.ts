@@ -131,6 +131,16 @@ export function previewUrlFor(label: string): string | null {
   return `/models/rpm/previews/${entry.file}.webp`;
 }
 
+/** Same lookup as previewUrlFor, but for the clip's own GLB — needed by
+ * anything driving animation through a `animationSrc`-style prop instead of
+ * mountCharacter's own AnimationMixer (e.g. visage-poc.tsx, which points
+ * visage's <Avatar animationSrc> at one of these directly). */
+export function clipUrlFor(label: string): string | null {
+  const entry = CLIP_LIBRARY.find((c) => c.label === label);
+  if (!entry) return null;
+  return `/models/rpm/clips/${entry.file}.glb`;
+}
+
 interface LoadedModel {
   scene: THREE.Object3D;
   height: number;
@@ -908,6 +918,60 @@ export function applyFaceAnalysis(base: CharacterState, traits: FaceAnalysis): C
   return next;
 }
 
+export interface BuiltCharacter {
+  /** Fully customized rig — cloned skeleton, tinted/painted materials,
+   * face-shape deformed, glasses/beard/hair accessories parented to the
+   * Head bone. NOT scaled/positioned for any particular camera/canvas — the
+   * consumer (mountCharacter's rebuild(), or an exporter) applies its own
+   * framing on top of this. */
+  root: THREE.Object3D;
+  height: number;
+  minY: number;
+}
+
+/** The customization pipeline shared by mountCharacter's rebuild() and
+ * anything else that needs a fully-built character (e.g. exporting to GLB
+ * for @readyplayerme/visage's PoC — see visage-poc.tsx). Extracted 2026-09
+ * so there is exactly one place this logic lives; do not duplicate it. */
+export async function buildCustomizedCharacter(state: CharacterState): Promise<BuiltCharacter> {
+  const base = await loadModel(state.bodyType);
+  const newRoot = cloneSkinned(base.scene) as THREE.Object3D;
+  newRoot.traverse((o) => {
+    if (!(o instanceof THREE.Mesh)) return;
+    o.material = Array.isArray(o.material) ? o.material.map((m) => m.clone()) : o.material.clone();
+  });
+  if (state.tint) applyTint(newRoot, state.tint);
+  paintAppearance(
+    newRoot,
+    { eyeColor: state.eyeColor, lipColor: state.lipColor, shirtColor: state.shirtColor, pantsColor: state.pantsColor },
+    state.bodyType,
+  );
+  if (state.jawWidth !== 1 || state.faceLength !== 1) applyFaceShape(newRoot, state.jawWidth, state.faceLength);
+
+  let headBone: THREE.Bone | null = null;
+  newRoot.traverse((o) => {
+    if ((o as THREE.Bone).isBone && o.name === "Head") headBone = o as THREE.Bone;
+  });
+  if (headBone) {
+    const hb: THREE.Bone = headBone;
+    if (state.hasGlasses) {
+      const glasses = buildGlasses();
+      glasses.position.set(0, 0.088, 0.115);
+      hb.add(glasses);
+    }
+    if (state.beardStyle !== "none") {
+      hb.add(buildBeard(state.beardStyle, state.beardColor));
+    }
+    const effectiveHairStyle: Exclude<HairStyleKey, "default"> | null =
+      state.hairStyle !== "default" ? state.hairStyle : state.hairColor ? "swept" : null;
+    if (effectiveHairStyle) {
+      hb.add(buildHairCap(effectiveHairStyle, state.hairColor));
+    }
+  }
+
+  return { root: newRoot, height: base.height, minY: base.minY };
+}
+
 export interface CharacterHandle {
   /** Plays any label from CLIP_LABELS. "Idle" loops forever; everything else
    * plays once, holds briefly (a card-game reaction beat, not a full mocap
@@ -987,59 +1051,23 @@ export async function mountCharacter(canvas: HTMLCanvasElement, initialState: Ch
 
   async function rebuild(state: CharacterState): Promise<void> {
     const myGeneration = ++buildGeneration;
-    const base = await loadModel(state.bodyType);
+    const { root: newRoot, height, minY } = await buildCustomizedCharacter(state);
     if (myGeneration !== buildGeneration) return; // superseded while awaiting
 
     if (root) {
       mixer?.stopAllAction();
       scene.remove(root);
     }
-
-    const newRoot = cloneSkinned(base.scene) as THREE.Object3D;
-    newRoot.traverse((o) => {
-      if (!(o instanceof THREE.Mesh)) return;
-      o.material = Array.isArray(o.material) ? o.material.map((m) => m.clone()) : o.material.clone();
-    });
-    if (state.tint) applyTint(newRoot, state.tint);
-    paintAppearance(
-      newRoot,
-      { eyeColor: state.eyeColor, lipColor: state.lipColor, shirtColor: state.shirtColor, pantsColor: state.pantsColor },
-      state.bodyType,
-    );
-    if (state.jawWidth !== 1 || state.faceLength !== 1) applyFaceShape(newRoot, state.jawWidth, state.faceLength);
     scene.add(newRoot);
-
-    let headBone: THREE.Bone | null = null;
-    newRoot.traverse((o) => {
-      if ((o as THREE.Bone).isBone && o.name === "Head") headBone = o as THREE.Bone;
-    });
-    if (headBone) {
-      const hb: THREE.Bone = headBone;
-      if (state.hasGlasses) {
-        const glasses = buildGlasses();
-        glasses.position.set(0, 0.088, 0.115);
-        hb.add(glasses);
-      }
-      if (state.beardStyle !== "none") {
-        hb.add(buildBeard(state.beardStyle, state.beardColor));
-      }
-      // A chosen hair colour needs actual geometry to show up on — default
-      // effective style falls back to 'swept' if only a colour was picked.
-      const effectiveHairStyle: Exclude<HairStyleKey, "default"> | null =
-        state.hairStyle !== "default" ? state.hairStyle : state.hairColor ? "swept" : null;
-      if (effectiveHairStyle) {
-        hb.add(buildHairCap(effectiveHairStyle, state.hairColor));
-      }
-    }
 
     const newMixer = new THREE.AnimationMixer(newRoot);
     const newActions: Record<string, THREE.AnimationAction> = {};
     for (const clip of libraryClips) newActions[clip.name] = newMixer.clipAction(clip);
 
     // Frame it: feet on the floor line, matching avatar-anim-v2's demo framing.
-    const s = 2.55 / base.height;
+    const s = 2.55 / height;
     newRoot.scale.setScalar(s);
-    newRoot.position.set(0, -base.minY * s - 1.3, 0);
+    newRoot.position.set(0, -minY * s - 1.3, 0);
 
     root = newRoot;
     mixer = newMixer;
