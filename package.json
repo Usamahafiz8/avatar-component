@@ -6,7 +6,7 @@
   "description": "Standalone build of the avatar/character component — same tooling as street-blackjack-pwa (Vite + TS strict + Vitest), so it drops into blackjack-pwa/ui/ with minimal rework once finished.",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -p tsconfig.json --noEmit && vite build",
+    "build": "node fetch-assets.mjs && tsc -p tsconfig.json --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
