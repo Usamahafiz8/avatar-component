@@ -4,10 +4,9 @@ dist/
 *.log
 
 # GEMINI_API_KEY and any other real secrets live here — see .env.example.
-.env
-.env.local
 
 # Ready Player Me animation-library assets — same reasoning as avatar-anim-v2:
 # their licence forbids redistributing the clips, so these are fetched fresh
 # by fetch-assets.mjs instead of committed.
 public/models/
+config.bat
