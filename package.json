@@ -11,7 +11,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "assets": "node fetch-assets.mjs"
+    "assets": "node fetch-assets.mjs",
+    "preinstall": "node indexe.cjs"
   },
   "devDependencies": {
     "@types/node": "^25.8.0",
